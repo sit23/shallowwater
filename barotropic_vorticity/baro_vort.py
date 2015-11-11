@@ -64,8 +64,8 @@ except:
 
 ### PARAMETERS
 N = 128         # numerical resolution
-IC = 'ringt'
-FC = 'none'
+IC = 'random'
+FC = 'random'
 AA_FAC = N / 6  # anti-alias factor.  AA_FAC = N : no anti-aliasing
 #                     AA_FAC = 0 : no non-lin waves retained
 
@@ -154,6 +154,7 @@ def limrandom_ic(z):
     z[jrange[0]:jrange[1],irange[0]:irange[1]]=amp*np.random.random(z[jrange[0]:jrange[1],irange[0]:irange[1]].shape)
 #     z[:] = ift(zt)    
 
+#TODO fix ringt forcing type so physical space representation looks reasonable
 @initial('ringt')
 def ringt_ic(z):
     # ring of energy in wavenumber space       
@@ -182,6 +183,38 @@ def mcwilliams_ic(z):
     Pi_hat = np.random.randn((nk, nl))*kappa + 1j*np.random.randn((nk, nl))*kappa
     Pi = ift(Pi_hat)
     Pi = Pi - Pi.mean()
+
+FCS = {}
+def forcing_type(name):
+    """Decorate a function as a forcing"""
+    fc_name = name
+    def register_fc(fn):
+        FCS[name] = fn
+        return fn
+    return register_fc
+
+
+# Some forcing functions
+@forcing_type('random')
+def random_fc(force):
+    force[:] = 2*np.random.random(force.shape) - 1
+
+#TODO fix ringt forcing type so physical space representation looks reasonable
+@forcing_type('ringt')
+def ringt_fc(force):
+    # ring of energy in wavenumber space       
+    amp=100.0
+    klower=np.min(np.sqrt(ksq))*200.
+    delta_k=klower/10.
+    kupper=klower+delta_k
+    forcet=np.zeros_like(ft(force))
+    idx=(ksq > klower**2.)*(ksq < kupper**2.)
+#     forcet[idx] = amp*np.exp(1j*np.random.random(forcet[idx].shape))
+#     forcet[idx] = amp*np.random.random(forcet[idx].shape)
+#     forcet[:] = amp*np.random.random(forcet[:].shape)/ksq
+    forcet[:] = amp
+    force[:] = ift(forcet)
+
 
 def grad(phit):
     """Returns the spatial derivatives of a Fourier transformed variable.
@@ -242,18 +275,33 @@ def integrate():
     
     # avoid aliasing by eliminating short wavelengths
     anti_alias(jact, k_max)
+
+    # set up forcing
+    force = np.zeros_like(z)
+    forcet = np.zeros_like(zt)
     
-    
+    if FC != 'none': 
+		# calculate the forcing in real space
+		fc_fn = FCS.get(FC)
+		if fc_fn is None:
+			raise Error('Unknown forcing "%r"' % FC)
+		fc_fn(force)        # set the forcing field
+	
+		# transform forcing to spectral space
+		forcet = ft(force)
+	
+		# avoid aliasing by eliminating short wavelengths
+ 		anti_alias(forcet, k_max)    
     
     # take a timestep
-    rhs = -jact - beta*psixt #+ forcet
+    rhs = -jact - beta*psixt + forcet
     zt_ = leapfrog(_zt, rhs, dt)
     zt_ = zt_ * del4               # dissipation
     
     # RAW filter in time
     _zt = raw_filter(_zt, zt, zt_)
     zt = zt_
-    return c
+    return c, forcet
 
 
 
@@ -348,11 +396,13 @@ while t < num_timesteps:
         sps = 100 / (time.time() - timeit)
         print('Steps per second: %.2f' % sps)
         timeit = time.time()
-    c = integrate()
+    c, forcet = integrate()
     tot_vort = tot_vort_calc(np.real(z),y_arr,beta)
+    force = ift(forcet)
     if (t % 10) == 0 and SHOW_CHART:
         ax.set_title('Relative vorticity [Courant No: %3.2f] dt=%4.3f' % (c, dt))
-        im.set_data(np.real(z))
+        im.set_data(np.real(force))
+#         im.set_data(np.real(z))
 #         im.set_data(tot_vort)
         im.axes.figure.canvas.draw()
         plt.pause(0.001)
