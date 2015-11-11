@@ -64,14 +64,15 @@ except:
 
 ### PARAMETERS
 N = 128         # numerical resolution
-IC = 'random'
+IC = 'ringt'
+FC = 'none'
 AA_FAC = N / 6  # anti-alias factor.  AA_FAC = N : no anti-aliasing
 #                     AA_FAC = 0 : no non-lin waves retained
 
 ubar = 0.00     # background zonal velocity
 beta = 1.7      # beta-plane f = f0 + βy
 tau = 0.1       # coefficient of dissipation
-num_timesteps = 1000
+num_timesteps = 10000
 
 ALLOW_SPEEDUP = False        # if True, allow the simulation to take a larger
 SPEEDUP_AT_C  = 0.6          # timestep when the Courant number drops below
@@ -144,6 +145,26 @@ def rwave_ic(z):
     zt[jchoice,ichoice]=amp
     z[:] = ift(zt)
     
+@initial('limrandom')
+def limrandom_ic(z):
+    # Random values assigned to relative vorticity in limited spatial region
+    amp=0.1
+    irange=[0,-1]
+    jrange=[20,30]
+    z[jrange[0]:jrange[1],irange[0]:irange[1]]=amp*np.random.random(z[jrange[0]:jrange[1],irange[0]:irange[1]].shape)
+#     z[:] = ift(zt)    
+
+@initial('ringt')
+def ringt_ic(z):
+    # ring of energy in wavenumber space       
+    amp=100.0
+    klower=np.min(np.sqrt(ksq))*200.
+    delta_k=klower/10.
+    kupper=klower+delta_k
+    zt=ft(z)
+    idx=(ksq > klower**2.)*(ksq < kupper**2.)
+    zt[idx] = amp*np.exp(1j*np.random.random(zt[idx].shape))
+    z[:] = ift(zt)
 
 # TODO: This code is incomplete
 @initial('mcwilliams')
@@ -225,7 +246,7 @@ def integrate():
     
     
     # take a timestep
-    rhs = -jact - beta*psixt
+    rhs = -jact - beta*psixt #+ forcet
     zt_ = leapfrog(_zt, rhs, dt)
     zt_ = zt_ * del4               # dissipation
     
@@ -313,8 +334,8 @@ if SHOW_CHART:
     import matplotlib.pyplot as plt
     fig = plt.figure()
     ax = fig.add_subplot(111)
-#     im = ax.imshow(np.real(z), cmap=plt.cm.seismic,origin='lower')
-    im = ax.imshow(tot_vort, cmap=plt.cm.seismic,origin='lower')
+    im = ax.imshow(np.real(z), cmap=plt.cm.seismic,origin='lower')
+#     im = ax.imshow(tot_vort, cmap=plt.cm.seismic,origin='lower')
     fig.show()
     plt.pause(0.001)
 #    time.sleep(0.2)
@@ -331,8 +352,8 @@ while t < num_timesteps:
     tot_vort = tot_vort_calc(np.real(z),y_arr,beta)
     if (t % 10) == 0 and SHOW_CHART:
         ax.set_title('Relative vorticity [Courant No: %3.2f] dt=%4.3f' % (c, dt))
-#         im.set_data(np.real(z))
-        im.set_data(tot_vort)
+        im.set_data(np.real(z))
+#         im.set_data(tot_vort)
         im.axes.figure.canvas.draw()
         plt.pause(0.001)
     if STORE_DATA and (t % data_interval) == 0:
