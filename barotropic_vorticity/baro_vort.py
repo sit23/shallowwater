@@ -54,18 +54,19 @@ from numpy import pi, cos, sin
 
 try:
     import pyfftw
+    raise Error
     from pyfftw.interfaces.numpy_fft import fftshift, fftn, ifftn
     pyfftw.interfaces.cache.enable()
     PYFFTW = True
 except:
     print("WARNING: pyfftw not available.  Falling back to numpy")
-    from numpy.fft import fftshift, fftn, ifftn
+    from numpy.fft import fftshift, rfftn, irfftn
     PYFFTW = False
 
 ### PARAMETERS
 N = 128         # numerical resolution
 IC = 'random'
-FC = 'random'
+FC = 'ringt'
 AA_FAC = N / 6  # anti-alias factor.  AA_FAC = N : no anti-aliasing
 #                     AA_FAC = 0 : no non-lin waves retained
 
@@ -101,11 +102,11 @@ def leapfrog(phi, f, dt):
 
 def ft(phi):
     """Go from physical space to spectral space."""
-    return fftn(phi, axes=(0,1))
+    return rfftn(phi, axes=(0,1))
 
 def ift(psi):
     """Go from spectral space to physical space."""
-    return ifftn(psi, axes=(0,1))
+    return irfftn(psi, axes=(0,1))
 
 def enstrophy(zt):
     """Calculate the enstrophy from transformed vorticity field."""
@@ -148,7 +149,7 @@ def rwave_ic(z):
 @initial('limrandom')
 def limrandom_ic(z):
     # Random values assigned to relative vorticity in limited spatial region
-    amp=0.1
+    amp=1.0
     irange=[0,-1]
     jrange=[20,30]
     z[jrange[0]:jrange[1],irange[0]:irange[1]]=amp*np.random.random(z[jrange[0]:jrange[1],irange[0]:irange[1]].shape)
@@ -207,13 +208,16 @@ def ringt_fc(force):
     klower=np.min(np.sqrt(ksq))*200.
     delta_k=klower/10.
     kupper=klower+delta_k
-    forcet=np.zeros_like(ft(force))
+    forcet=np.zeros_like(force)
     idx=(ksq > klower**2.)*(ksq < kupper**2.)
-#     forcet[idx] = amp*np.exp(1j*np.random.random(forcet[idx].shape))
+    forcet[idx] = amp*np.random.random(forcet[idx].shape)
 #     forcet[idx] = amp*np.random.random(forcet[idx].shape)
 #     forcet[:] = amp*np.random.random(forcet[:].shape)/ksq
-    forcet[:] = amp
-    force[:] = ift(forcet)
+#    forcet[:] = amp
+#     force[:] = ift(forcet)
+    force[:]=forcet
+#     force[:] = 0
+#     force[1,1] = 1.0
 
 
 def grad(phit):
@@ -274,10 +278,11 @@ def integrate():
     jact = ft(jac)
     
     # avoid aliasing by eliminating short wavelengths
-    anti_alias(jact, k_max)
+#     anti_alias(jact, k_max)
 
     # set up forcing
     force = np.zeros_like(z)
+#     forcet=ft(force)
     forcet = np.zeros_like(zt)
     
     if FC != 'none': 
@@ -285,14 +290,15 @@ def integrate():
 		fc_fn = FCS.get(FC)
 		if fc_fn is None:
 			raise Error('Unknown forcing "%r"' % FC)
-		fc_fn(force)        # set the forcing field
+		fc_fn(forcet)        # set the forcing field
 	
 		# transform forcing to spectral space
-		forcet = ft(force)
+# 		forcet = ft(force)
+# 		forcet=force
 	
 		# avoid aliasing by eliminating short wavelengths
- 		anti_alias(forcet, k_max)    
-    
+#  		anti_alias(forcet, k_max)    
+  
     # take a timestep
     rhs = -jact - beta*psixt + forcet
     zt_ = leapfrog(_zt, rhs, dt)
@@ -323,7 +329,7 @@ dt = 0.4 * 16.0 / nx          # choose an initial dt. This will change
 
 ## Spectral Domain
 dk = 2.0*pi/domain;
-k = np.arange(-n/2, n/2)*dk
+k = np.arange(0, n/2 +1)*dk
 l = np.arange(-n/2, n/2)*dk
 
 kk, ll = [fftshift(q) for q in np.meshgrid(k, l)]  # put in FFT order
@@ -382,7 +388,7 @@ if SHOW_CHART:
     import matplotlib.pyplot as plt
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    im = ax.imshow(np.real(z), cmap=plt.cm.seismic,origin='lower')
+#     im = ax.imshow(np.real(z), cmap=plt.cm.seismic,origin='lower')
 #     im = ax.imshow(tot_vort, cmap=plt.cm.seismic,origin='lower')
     fig.show()
     plt.pause(0.001)
@@ -398,12 +404,16 @@ while t < num_timesteps:
         timeit = time.time()
     c, forcet = integrate()
     tot_vort = tot_vort_calc(np.real(z),y_arr,beta)
-    force = ift(forcet)
+    force = ift(forcet)    
+    im = ax.imshow(np.real(force), cmap=plt.cm.seismic,origin='lower')
+
     if (t % 10) == 0 and SHOW_CHART:
         ax.set_title('Relative vorticity [Courant No: %3.2f] dt=%4.3f' % (c, dt))
-        im.set_data(np.real(force))
+#         im.set_data(np.real(force))
 #         im.set_data(np.real(z))
 #         im.set_data(tot_vort)
+        im.set_data(np.real(force))
+
         im.axes.figure.canvas.draw()
         plt.pause(0.001)
     if STORE_DATA and (t % data_interval) == 0:
