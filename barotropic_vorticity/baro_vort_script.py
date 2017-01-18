@@ -328,7 +328,7 @@ while t < tmax:
     #high_wavenumber_filter
     high_wn_filter(zt)
 
-	if t > t_diag :
+    if t > t_diag :
 		# diagnostics
 		urms=np.sqrt(np.mean(psix**2 + psiy**2))
 		tot_energy=0.5*urms**2.
@@ -346,7 +346,7 @@ while t < tmax:
 
 
 
-	if t > t_plot:
+    if t > t_plot:
 		plt.clf()
 # 			plt.imshow(z)
 # 			plt.colorbar()
@@ -436,5 +436,5 @@ while t < tmax:
 		plt.pause(0.0001)
 		t_plot = t + PLOT_EVERY_S
 
-	t = t + dt
-	step = step + 1
+    t = t + dt
+    step = step + 1
