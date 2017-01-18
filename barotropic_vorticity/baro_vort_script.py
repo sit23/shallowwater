@@ -58,6 +58,10 @@ from numpy import pi, cos, sin
 from numpy.fft import fftshift, fftfreq
 from numpy.fft.fftpack import rfft2, irfft2
 
+import pdb
+import time
+import os
+
 
 ### Configuration
 nx = 256
@@ -83,8 +87,10 @@ SPEEDUP_AT_C  = 0.4         # timestep when the Courant number drops below
                              # value of parameter SPEEDUP_AT_C
 SLOWDN_AT_C = 0.6            # reduce the timestep when Courant number
                              # is bigger than SLOWDN_AT_C
-PLOT_EVERY_S = 10
+PLOT_EVERY_S = 1000
+DIAG_EVERY_S = 100
 
+directory='./baro_vort_long_2/'
 
 ### Function Definitions
 def ft(phi):
@@ -259,16 +265,19 @@ urms=np.sqrt(np.mean(psix**2 + psiy**2))
 tot_energy=0.5*urms**2.
 tot_energy_arr[0]=tot_energy
 
+if not os.path.exists(directory):
+	os.makedirs(directory)
 
 ## RUN THE SIMULATION
 plt.ion()                       # plot in realtime
 plt.figure(figsize=(12, 12))
-tplot = t + PLOT_EVERY_S
+t_plot = t + PLOT_EVERY_S
+t_diag = t + DIAG_EVERY_S
+start_time=time.time()
 
 filter_testt=np.ones(zt.shape)
 high_wn_filter(filter_testt) #enables the profile of the high_wn_filter to be compared with deln, the equivalent for hyperviscosity.
 filter_testt_shift = np.fft.fftshift(filter_testt, axes=(0,))
-
 
 while t < tmax:
     # calculate derivatives in spectral space
@@ -319,84 +328,113 @@ while t < tmax:
     #high_wavenumber_filter
     high_wn_filter(zt)
 
-    if t > tplot:
-        plt.clf()
-        plt.imshow(z)
-
-#         # diagnostics
-#         urms=np.sqrt(np.mean(psix**2 + psiy**2))
-#         rhines_scale = np.sqrt(urms/beta)
-#         tot_energy=0.5*urms**2.
-#         epsilon = 2 * r_rayleigh * tot_energy
-#         l_epsilon = (epsilon / beta**3.)**(1./5.)
-
-#         time_arr=np.append(time_arr,t)
-#         tot_energy_arr=np.append(tot_energy_arr,tot_energy)
-
-#         force=ift(forcet)
-
-
-
-#         print('[{:5d}] {:.2f} Max z: {:2.2f} c={:.2f} dt={:.2f} rh_s={:.3f} l_eps={:.3f} ratio={:2.2f} urms={:2.2f}'.format(
-#             step, t, np.max(z), c, dt, rhines_scale, l_epsilon, rhines_scale/l_epsilon, urms))
-#         plt.clf()
-#         plt.subplot(231)
-#         plt.imshow(z, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
-#         plt.xlabel('x')
-#         plt.ylabel('y')
-#         zmax = np.max(np.abs(z))
-#         plt.clim(-zmax,zmax)
-#         plt.colorbar(orientation='horizontal')
-#         plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
-
-#         plt.subplot(232)
-#         power = np.fft.fftshift(np.abs(zt)**2, axes=(0,))
-#         power_norm = np.log(power)
-#         plt.imshow(power_norm,
-#                     extent=[np.min(k/dk), np.max(k/dk), np.min(l/dl), np.max(l/dl)])
-# #         plt.imshow(filter_testt_shift,
-# #                     extent=[np.min(k/dk), np.max(k/dk), np.min(l/dl), np.max(l/dl)])
+	if t > t_diag :
+		# diagnostics
+		urms=np.sqrt(np.mean(psix**2 + psiy**2))
+		tot_energy=0.5*urms**2.
+		time_arr=np.append(time_arr,t)
+		tot_energy_arr=np.append(tot_energy_arr,tot_energy)
+	
+		end_time=time.time()
+		print t, ' out of ', tmax, end_time-start_time
+		start_time=end_time
+	
+		t_diag = t + DIAG_EVERY_S
+	
+	
+	
 
 
-#         plt.xlabel('k/dk')
-#         plt.ylabel('l/dl')
-#         plt.colorbar(orientation='horizontal')
-#         plt.title('Power Spectra')
 
-#         ax1=plt.subplot(233)
-#         ax1.plot(-np.mean(psiy,axis=1),np.linspace(0, Ly, num=ny))
-#         ax1.axvline(0, color='black')
-#         plt.xlabel('ubar')
+	if t > t_plot:
+		plt.clf()
+# 			plt.imshow(z)
+# 			plt.colorbar()
 
-#         ax2=ax1.twiny()
-#         ax2.plot(np.mean(z,axis=1)+beta*y,np.linspace(0, Ly, num=ny),'g')
-#         plt.xlabel('qbar')
+		rhines_scale = np.sqrt(urms/beta)
+		epsilon = 2 * r_rayleigh * tot_energy
+		l_epsilon = (epsilon / beta**3.)**(1./5.)
+		force=ift(forcet)
 
-#         plt.subplot(234)
-#         plt.imshow(z+beta*y_arr, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
-#         plt.xlabel('x')
-#         plt.ylabel('y')
-#         zmax = np.max(np.abs(z+beta*y_arr))
-#         plt.clim(-zmax,zmax)
-#         plt.colorbar(orientation='horizontal')
-#         plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
 
-#         plt.subplot(235)
-#         plt.plot(time_arr, tot_energy_arr)
-#         plt.xlabel('Time')
-#         plt.ylabel('Total Energy')
 
-#         plt.subplot(236)
-#         plt.imshow(force, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
-#         plt.xlabel('x')
-#         plt.ylabel('y')
-#         forcemax = np.max(np.abs(force))
-#         plt.clim(-forcemax,forcemax)
-#         plt.colorbar(orientation='horizontal')
-#         plt.title('Forcing at {:.2f}s dt={:.2f}'.format(t, dt))
 
-        plt.pause(0.01)
-        tplot = t + PLOT_EVERY_S
+		print('[{:5d}] {:.2f} Max z: {:2.2f} c={:.2f} dt={:.2f} rh_s={:.3f} l_eps={:.3f} ratio={:2.2f} urms={:2.2f}'.format(
+			step, t, np.max(z), c, dt, rhines_scale, l_epsilon, rhines_scale/l_epsilon, urms))
+		plt.clf()
+		plt.subplot(231)
+		plt.imshow(z, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
+		plt.xlabel('x')
+		plt.ylabel('y')
+		zmax = np.max(np.abs(z))
+		plt.clim(-zmax,zmax)
+		cb = plt.colorbar(orientation='horizontal')
+		cb.set_ticks(np.around(np.linspace(-zmax,zmax,num=5), decimals=1), update_ticks=True)
+		plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
 
-    t = t + dt
-    step = step + 1
+		plt.subplot(232)
+		
+# 			cmap=
+# 			norm = mpl.colors.BoundaryNorm([-1.,8.0], cmap.N)
+		
+		plt.imshow(z+beta*y_arr, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
+		
+		plt.xlabel('x')
+		plt.ylabel('y')
+		zmax = np.max(np.abs(beta*y_arr))
+		plt.clim(0,zmax)
+		cb_2 = plt.colorbar(orientation='horizontal')
+		cb_2.set_ticks(np.around(np.linspace(0,zmax,num=5), decimals=1), update_ticks=True)
+		print zmax
+		plt.title('PV at {:.2f}s dt={:.2f}'.format(t, dt))
+
+		ax1=plt.subplot(233)
+		ax1.plot(-np.mean(psiy,axis=1),np.linspace(0, Ly, num=ny))
+		ax1.axvline(0, color='black')
+		plt.xlabel('ubar')
+		ax1.locator_params(axis='x',nbins=3)
+		ax2=ax1.twiny()
+		ax2.plot(np.mean(z,axis=1)+beta*y,np.linspace(0, Ly, num=ny),'g')
+		plt.xlabel('qbar')
+
+
+		plt.subplot(234)
+		plt.plot(time_arr, tot_energy_arr)
+		plt.xlabel('Time')
+		plt.ylabel('Total Energy')
+
+		plt.subplot(235)
+		power = np.fft.fftshift(np.abs(np.sqrt(ksq)*zt)**2, axes=(0,))
+		power_norm = np.log(power)
+		zmax=np.max(power_norm)
+		plt.imshow(power_norm,
+					extent=[np.min(k/dk), np.max(k/dk), np.min(l/dl), np.max(l/dl)], vmin=0., vmax=zmax)
+		plt.clim(0,zmax)
+		plt.xlabel('k/dk')
+		plt.ylabel('l/dl')
+		cb = plt.colorbar(orientation='horizontal')
+		cb.set_ticks(np.around(np.linspace(0,zmax,num=5), decimals=1), update_ticks=True)
+		plt.title('Power Spectrum')
+
+
+
+		plt.subplot(236)
+		plt.imshow(force, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
+		plt.xlabel('x')
+		plt.ylabel('y')
+		forcemax = np.max(np.abs(force))
+		plt.clim(-forcemax,forcemax)
+		cb = plt.colorbar(orientation='horizontal')
+		cb.set_ticks(np.around(np.linspace(-forcemax,forcemax,num=5), decimals=2), update_ticks=True)
+		
+		plt.title('Forcing at {:.2f}s dt={:.2f}'.format(t, dt))
+
+		name=str(step)
+
+		plt.savefig(directory+name+'.pdf', bbox_inches='tight')
+
+		plt.pause(0.0001)
+		t_plot = t + PLOT_EVERY_S
+
+	t = t + dt
+	step = step + 1
