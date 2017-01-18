@@ -71,11 +71,11 @@ tau = 0.1                       # coefficient of dissipation
                                 # smaller = more dissipation
 
 #Poorly determined coefficients for forcing and dissipation
-r_rayleigh = (1./50000.)/np.sqrt(10.)
-forcing_amp_factor=100.0/np.sqrt(1.)
+r_rayleigh =  1.e-4
+forcing_amp_factor=1.0
 
 t = 0.0
-tmax = 10000
+tmax = 100000
 step = 0
 
 ALLOW_SPEEDUP = True         # if True, allow the simulation to take a larger
@@ -245,7 +245,7 @@ zt[:] = ft(z)
 anti_alias(zt)
 z[:]=ift(zt)
 
-amp = forcing_amp_factor* np.max(np.abs(qi))        # calc a reasonable forcing amplitude
+amp = forcing_amp_factor* np.max(np.abs(qi)) / dt        # calc a reasonable forcing amplitude by taking the max of the vorticity at t=0 and dividing by the timestep. This gives a rough estimate for the forcing as it has dimensions of dq/dt.
 
 # initialise the storage arrays
 time_arr[0]=t
