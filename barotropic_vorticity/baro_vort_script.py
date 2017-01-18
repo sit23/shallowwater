@@ -50,7 +50,7 @@ References:
   [http://www.gfdl.noaa.gov/cms-filesystem-action/user_files/pjp/barotropic.pdf]
 * McWilliams Initial Condition inspired by pyqg [https://github.com/pyqg/pyqg]
 """
-
+from __future__ import (division, print_function)
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -336,7 +336,7 @@ while t < tmax:
         tot_energy_arr=np.append(tot_energy_arr,tot_energy)
     
         end_time=time.time()
-        print t, ' out of ', tmax, end_time-start_time
+        print (t, ' out of ', tmax, end_time-start_time)
         start_time=end_time
     
         t_diag = t + DIAG_EVERY_S
@@ -385,7 +385,6 @@ while t < tmax:
         plt.clim(0,zmax)
         cb_2 = plt.colorbar(orientation='horizontal')
         cb_2.set_ticks(np.around(np.linspace(0,zmax,num=5), decimals=1), update_ticks=True)
-        print zmax
         plt.title('PV at {:.2f}s dt={:.2f}'.format(t, dt))
 
         ax1=plt.subplot(233)
