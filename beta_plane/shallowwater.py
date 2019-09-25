@@ -20,10 +20,76 @@ f = f0 + βy
 import numpy as np
 
 from arakawac import ArakawaCGrid, PeriodicBoundaries, WallBoundaries
-from timesteppers import AdamsBashforth3
+from timesteppers import AdamsBashforth3, sync_step
+
+class Dynamic(AdamsBashforth3):
+    """Common base class for all shallow water models and tracers."""
+    def __init__(self):
+        super(Dynamic, self).__init__()
+        self.forcings = []
+
+    def add_forcing(self, fn):
+        """Add a forcing term to the model.  Typically used as a decorator:
+
+            @sw.add_forcing
+            def dissipate(swmodel):
+                dstate = np.zeros_like(swmodel.state)
+                dstate[:] = -swmodel.state*0.001
+                return dstate
+
+        Forcing functions should take a single argument for the model/tracer itself,
+        and return a state delta the same shape as state.
+        """
+        self.forcings.append(fn)
+        return fn
+
+    def _dstate(self):
+        dstate = np.zeros_like(self.state)
+        if self.forcings:
+            for f in self.forcings:
+                dstate += f(self)
+        return self._dynamics() + dstate
+
+    def _dynamics(self):
+        # should be implemented by the model
+        raise NotImplemented()
 
 
-class ShallowWater(ArakawaCGrid, AdamsBashforth3):
+class Model(Dynamic):
+    def __init__(self):
+        super(Model, self).__init__()
+        self.tracers  = {}
+
+    def add_tracer(self, name, initial_state=0.0, kappa=0.0):
+        """Add a tracer to the shallow water model.
+
+        Dq/Dt + q(∇ . u) = k∆q
+
+        Tracers are advected by the flow.
+
+        `kappa` is a coefficient of dissipation.
+
+        Once a tracer has been added to the model it's value can be accessed
+        by the from the model.tracers dict, or from model.tracer_name.
+        """
+        t = Tracer(name, grid=self, kappa=kappa,
+                            initial_state=initial_state)
+        self.tracers[name] = t
+        if not hasattr(self, name):
+            self.__dict__[name] = t
+        return t
+
+    def tracer(self, name):
+        return self.tracers[name]
+
+    def step(self):  # override the basic timestepping `step` to support tracers
+        self.apply_boundary_conditions()
+        for tracer in self.tracers.values():
+            tracer.apply_boundary_conditions()
+
+        sync_step(self, *self.tracers.values())
+
+class ShallowWater(ArakawaCGrid, Model):
     """The Shallow Water Equations on the Arakawa-C grid."""
     def __init__(self, nx, ny, Lx=1.0e7, Ly=1.0e7, f0=0.0,
                     beta=0.0, nu=1.0e3, nu_phi=None,
@@ -44,26 +110,6 @@ class ShallowWater(ArakawaCGrid, AdamsBashforth3):
         # timestepping
         self.dt = dt
 
-        self.forcings = []
-        self.tracers  = {}
-
-    def add_forcing(self, fn):
-        """Add a forcing term to the model.  Typically used as a decorator:
-
-            sw = PeriodicShallowWater(nx, ny)
-
-            @sw.add_forcing
-            def dissipate(swmodel):
-                dstate = np.zeros_like(swmodel.state)
-                dstate[:] = -swmodel.state*0.001
-                return dstate
-
-        Forcing functions should take a single argument for the model object itself,
-        and return a state delta the same shape as state.
-        """
-        self.forcings.append(fn)
-        return fn
-
     def damping(self, var):
         # sponges are active at the top and bottom of the domain by applying Rayleigh friction
         # with exponential decay towards the centre of the domain
@@ -72,13 +118,7 @@ class ShallowWater(ArakawaCGrid, AdamsBashforth3):
         var_sponge[:, -self.sponge_ny:] = self.sponge[::-1][np.newaxis, :]
         return self.r*var_sponge*var
 
-    def rhs(self):
-        """Set a right-hand side term for the equation.
-        Default is [0,0,0], override this method when subclassing."""
-        zeros = np.zeros_like(self.state)
-        return zeros
-
-    def _dynamics_terms(self):
+    def _dynamics(self):
         """Calculate the dynamics for the u, v and phi equations."""
         # ~~~ Nonlinear Dynamics ~~~
         u_at_v, v_at_u = self.uvatuv()              # (nx, ny+1), (nx+1, ny)
@@ -120,55 +160,6 @@ class ShallowWater(ArakawaCGrid, AdamsBashforth3):
 
         return dstate
 
-    def _rhs(self):
-        dstate = np.zeros_like(self.state)
-        for f in self.forcings:
-            dstate += f(self)
-        return self._dynamics_terms() + self.rhs() + dstate
-
-    def add_tracer(self, name, initial_state=0.0, rhs=0, kappa=0.0, damping=1.0):
-        """Add a tracer to the shallow water model.
-
-        Dq/Dt + q(∇ . u) = k∆q + rhs
-
-        Tracers are advected by the flow.  `rhs` can be a constant
-        or a function that takes the shallow water object as a single argument.
-
-        `kappa` is a coefficient of dissipation.
-
-        Once a tracer has been added to the model it's value can be accessed
-        by the `tracer(name)` method.
-        """
-        t = ShallowWaterTracer(name, grid=self, kappa=kappa,
-                            initial_state=initial_state, damping=damping)
-        self.tracers[name] = t
-        return t
-
-    def tracer(self, name):
-        return self.tracers[name]
-
-    # allow tracers to be called as properties of the object
-    def __getattr__(self, name):
-        if name in self.tracers:
-            return self.tracer(name)
-
-    def step(self):  # override the basic timestepping `step` to support tracers
-        dt, tc = self.dt, self.tc
-
-        self.apply_boundary_conditions()
-        for tracer in self.tracers.values():
-            tracer.apply_boundary_conditions()
-
-        newstate = self.state + self.dstate()
-
-        # calculate all tracer dstates before updating any of them
-        dstates = [t.dstate() for t in self.tracers.values()]
-        for tracer, dstate in zip(self.tracers.values(), dstates):
-            tracer.state = tracer.state + dstate
-            tracer._incr_timestep()
-
-        self.state = newstate
-        self._incr_timestep()
 
 
 class LinearShallowWater(ShallowWater):
@@ -190,7 +181,7 @@ class LinearShallowWater(ShallowWater):
     def _h(self):
         return self._phi
 
-    def _dynamics_terms(self):
+    def _dynamics(self):
         """Calculate the dynamics of the u, v and h equations."""
         # ~~~ Linear dynamics ~~~
         f0, beta, g, H, nu = self.f0, self.beta, self.g, self.H, self.nu
@@ -213,68 +204,38 @@ class LinearShallowWater(ShallowWater):
         return dstate
 
 
-class ShallowWaterTracer(AdamsBashforth3):
-    def __init__(self, name, grid, kappa=0.0, initial_state=0.0, damping=0.0):
+class Tracer(Dynamic):
+    def __init__(self, name, grid, kappa=0.0, initial_state=0.0):
+        super(Tracer, self).__init__()
         self.name = name
         self.grid = grid
 
-        self._state = np.zeros_like(grid._phi)  # store tracer on cell centres
+        self._state = np.zeros(grid._shape)  # store tracer on cell centres
+        self.kappa = kappa # diffusion
+
         self.state = initial_state
 
-        self.kappa = kappa # diffusion
-        self.damping = damping
-
         self.dt = grid.dt
-
-        self.forcings = []
 
     @property
     def state(self):
         # view without boundary conditions
-        return self._state[1:-1, 1:-1]
+        return self._state[self.grid.true_slice]
 
     @state.setter
     def state(self, value):
-        self._state[1:-1, 1:-1] = value
-
-    def _advection(self):
-        """Calculates the conservation of the advected tracer by the fluid flow.
-
-        ∂[q]/∂t + ∇ . (uq) = 0
-
-        Returns the divergence term i.e. ∇.(uq)
-        """
-        grid = self.grid
-        q = self._state
-
-        q_at_u = grid.x_average(q)[:, 1:-1]  # (nx+1, ny)
-        q_at_v = grid.y_average(q)[1:-1, :]  # (nx, ny+1)
-
-        return grid.diffx(q_at_u * grid.u) + grid.diffy(q_at_v * grid.v)  # (nx, ny)
+        self._state[self.grid.true_slice] = value
 
     def _diffusion(self):
-        return self.kappa*self.grid.del2(self._state) + self.damping*self.grid.damping(self.state)
+        return self.kappa*self.grid.del2(self._state)
 
-    def _rhs(self):
-        forcings = np.zeros_like(self.state)
-        for f in self.forcings:
-            forcings += f(self)
-        return self._diffusion() - self._advection() + self.rhs() + forcings
+    def _dynamics(self):
+        return self._diffusion() - self.grid.advect(self._state)
 
     def rhs(self):
         """Set a right-hand side term for the equation.
         Default is 0.0, override this method when subclassing."""
         return 0.0
-
-    def add_forcing(self, fn):
-        """Add a forcing term to the tracer.  Typically used as a decorator,
-        see the ShallowWater class for an example.
-
-        Forcing functions should take a single argument for the tracer object itself,
-        and return a state delta the same shape as state.
-        """
-        self.forcings.append(fn)
-        return fn
 
     def step(self):
         self.apply_boundary_conditions()
@@ -290,7 +251,8 @@ class ShallowWaterTracer(AdamsBashforth3):
     def __getitem__(self, slice):
         return self.state[slice]
 
-
+    def __setitem__(self, slice, value):
+        self.state[slice] = value
 
 class PeriodicShallowWater(PeriodicBoundaries, ShallowWater): pass
 class WalledShallowWater(WallBoundaries, ShallowWater): pass
@@ -313,7 +275,7 @@ if __name__ == '__main__':
     #ocean.h[100:100+2*d, ny//2-d:ny//2+d] = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
     import matplotlib.pyplot as plt
 
-    ocean.add_tracer('q', initial_state=1.0, damping=0.0)
+    ocean.add_tracer('q', initial_state=1.0)
 
     @ocean.add_forcing
     def heating(model):
@@ -327,6 +289,8 @@ if __name__ == '__main__':
 
     num_levels = 24
     colorlevels = np.concatenate([np.linspace(-1, -.05, num_levels//2), np.linspace(.05, 1, num_levels//2)])
+
+    print(ocean.q.state)
 
     ts = []
     es = []
