@@ -50,8 +50,8 @@ References:
   [http://www.gfdl.noaa.gov/cms-filesystem-action/user_files/pjp/barotropic.pdf]
 * McWilliams Initial Condition inspired by pyqg [https://github.com/pyqg/pyqg]
 """
-from __future__ import (division, print_function)
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 
 from numpy import pi, cos, sin
@@ -74,9 +74,9 @@ n_diss = 2.0                    # Small-scale dissipation of the form ∆^2n_dis
 tau = 0.1                       # coefficient of dissipation
                                 # smaller = more dissipation
 
-#Poorly determined coefficients for forcing and dissipation
-r_rayleigh =  1.e-4
-forcing_amp_factor=1.0
+#Coefficients for forcing and dissipation
+r_rayleigh =  1.e-4            #Strength of Rayleigh drag
+forcing_amp_factor=1.0         #How strong should the forcing be?
 
 t = 0.0
 tmax = 100000
@@ -87,10 +87,11 @@ SPEEDUP_AT_C  = 0.4         # timestep when the Courant number drops below
                              # value of parameter SPEEDUP_AT_C
 SLOWDN_AT_C = 0.6            # reduce the timestep when Courant number
                              # is bigger than SLOWDN_AT_C
-PLOT_EVERY_S = 1000
-DIAG_EVERY_S = 100
+PLOT_EVERY_S = 100           #How ofetn should the plots be updated (in time units)?
+DIAG_EVERY_S = 10            #How ofetn should the energy be saved (in time units)?
 
-directory='./baro_vort_long_2/'
+output_to_file = False #Set whether plots should be made into PDFs or not
+directory='./baro_vort_long_1/' #What folder name would you like to store the plots in?
 
 ### Function Definitions
 def ft(phi):
@@ -175,7 +176,7 @@ def adams_bashforth(zt, rhs, dt):
 
 ### Physical Domain
 nl = ny
-nk = nx/2 + 1
+nk = int(np.round(nx/2)) + 1
 dx = Lx / nx
 dy = Ly / ny
 dt = 0.4 * 16.0 / nx          # choose an initial dt. This will change
@@ -265,8 +266,11 @@ urms=np.sqrt(np.mean(psix**2 + psiy**2))
 tot_energy=0.5*urms**2.
 tot_energy_arr[0]=tot_energy
 
-if not os.path.exists(directory):
-    os.makedirs(directory)
+if output_to_file:
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    else:
+        raise RuntimeError('The folder '+directory+' already exists. Please change the directory name to something else')
 
 ## RUN THE SIMULATION
 plt.ion()                       # plot in realtime
@@ -341,96 +345,77 @@ while t < tmax:
     
         t_diag = t + DIAG_EVERY_S
     
-    
-    
-
-
 
     if t > t_plot:
-        plt.clf()
-#             plt.imshow(z)
-#             plt.colorbar()
+        #Whenever it's time to make some plots, the following code is executed...
 
+        plt.clf()
+
+        #Calculate some important length scales
         rhines_scale = np.sqrt(urms/beta)
         epsilon = 2 * r_rayleigh * tot_energy
         l_epsilon = (epsilon / beta**3.)**(1./5.)
         force=ift(forcet)
 
-
-
-
+        #Print out diagnostics
         print('[{:5d}] {:.2f} Max z: {:2.2f} c={:.2f} dt={:.2f} rh_s={:.3f} l_eps={:.3f} ratio={:2.2f} urms={:2.2f}'.format(
             step, t, np.max(z), c, dt, rhines_scale, l_epsilon, rhines_scale/l_epsilon, urms))
+
+        #Make first subplot showing relative vorticity
         plt.clf()
-        plt.subplot(231)
+        plt.subplot(221)
         plt.imshow(z, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
         plt.xlabel('x')
         plt.ylabel('y')
+        plt.title('Relative Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
+
+        #Add a colour bar to this plot
         zmax = np.max(np.abs(z))
         plt.clim(-zmax,zmax)
-        cb = plt.colorbar(orientation='horizontal')
+        ax = plt.gca()
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="2%", pad=0.05)
+        cb = plt.colorbar(cax=cax)        
         cb.set_ticks(np.around(np.linspace(-zmax,zmax,num=5), decimals=1), update_ticks=True)
-        plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
 
-        plt.subplot(232)
-        
-#             cmap=
-#             norm = mpl.colors.BoundaryNorm([-1.,8.0], cmap.N)
-        
-        plt.imshow(z+beta*y_arr, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
-        
+        #Make the second subplot showing PV
+        plt.subplot(222)
+               
+        plt.imshow(z+beta*y_arr, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)       
         plt.xlabel('x')
         plt.ylabel('y')
         zmax = np.max(np.abs(beta*y_arr))
         plt.clim(0,zmax)
-        cb_2 = plt.colorbar(orientation='horizontal')
-        cb_2.set_ticks(np.around(np.linspace(0,zmax,num=5), decimals=1), update_ticks=True)
         plt.title('PV at {:.2f}s dt={:.2f}'.format(t, dt))
+        ax = plt.gca()
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="2%", pad=0.05)
+        cb_2 = plt.colorbar(cax=cax)     
+        cb_2.set_ticks(np.around(np.linspace(0,zmax,num=5), decimals=1), update_ticks=True)
 
-        ax1=plt.subplot(233)
-        ax1.plot(-np.mean(psiy,axis=1),np.linspace(0, Ly, num=ny))
-        ax1.axvline(0, color='black')
-        plt.xlabel('ubar')
-        ax1.locator_params(axis='x',nbins=3)
-        ax2=ax1.twiny()
-        ax2.plot(np.mean(z,axis=1)+beta*y,np.linspace(0, Ly, num=ny),'g')
-        plt.xlabel('qbar')
+        #Make the third subplot showing total energy with time
 
-
-        plt.subplot(234)
+        plt.subplot(223)
         plt.plot(time_arr, tot_energy_arr)
         plt.xlabel('Time')
         plt.ylabel('Total Energy')
 
-        plt.subplot(235)
-        power = np.fft.fftshift(np.abs(np.sqrt(ksq)*zt)**2, axes=(0,))
-        power_norm = np.log(power)
-        zmax=np.max(power_norm)
-        plt.imshow(power_norm,
-                    extent=[np.min(k/dk), np.max(k/dk), np.min(l/dl), np.max(l/dl)], vmin=0., vmax=zmax)
-        plt.clim(0,zmax)
-        plt.xlabel('k/dk')
-        plt.ylabel('l/dl')
-        cb = plt.colorbar(orientation='horizontal')
-        cb.set_ticks(np.around(np.linspace(0,zmax,num=5), decimals=1), update_ticks=True)
-        plt.title('Power Spectrum')
+        #Make the fourth subplot showing zonal-mean PV and zonal-mean zonal wind
 
-
-
-        plt.subplot(236)
-        plt.imshow(force, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
-        plt.xlabel('x')
-        plt.ylabel('y')
-        forcemax = np.max(np.abs(force))
-        plt.clim(-forcemax,forcemax)
-        cb = plt.colorbar(orientation='horizontal')
-        cb.set_ticks(np.around(np.linspace(-forcemax,forcemax,num=5), decimals=2), update_ticks=True)
-        
-        plt.title('Forcing at {:.2f}s dt={:.2f}'.format(t, dt))
+        ax1=plt.subplot(224)
+        ax1.plot(-np.mean(psiy,axis=1),np.linspace(0, Ly, num=ny))
+        ax1.axvline(0, color='black')
+        plt.xlabel('Zonal-mean zonal-wind (black)')
+        ax1.locator_params(axis='x',nbins=3)
+        ax2=ax1.twiny()
+        ax2.plot(np.mean(z,axis=1)+beta*y,np.linspace(0, Ly, num=ny),'g')
+        plt.xlabel('Zonal-mean PV (green)')
+        plt.ylim(0.,Ly)
 
         name=str(step)
 
-        plt.savefig(directory+name+'.pdf', bbox_inches='tight')
+        if output_to_file:
+            plt.savefig(directory+name+'.pdf', bbox_inches='tight')
 
         plt.pause(0.0001)
         t_plot = t + PLOT_EVERY_S
