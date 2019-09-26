@@ -69,7 +69,7 @@ ny = 256                        # numerical resolution
 Lx = 1.0
 Ly = 1.0                        # domain size [m]
 ubar = 0.00                     # background zonal velocity  [m/s]
-beta = 8.0                     # beta-plane f = f0 + βy     [1/s 1/m]
+beta = 4.0                     # beta-plane f = f0 + βy     [1/s 1/m]
 n_diss = 2.0                    # Small-scale dissipation of the form ∆^2n_diss, such that n_diss = 2 would be a ∆^4 hyperviscosity.
 tau = 0.1                       # coefficient of dissipation
                                 # smaller = more dissipation
@@ -405,7 +405,7 @@ while t < tmax:
         ax1=plt.subplot(224)
         ax1.plot(-np.mean(psiy,axis=1),np.linspace(0, Ly, num=ny))
         ax1.axvline(0, color='black')
-        plt.xlabel('Zonal-mean zonal-wind (black)')
+        plt.xlabel('Zonal-mean zonal-wind (blue)')
         ax1.locator_params(axis='x',nbins=3)
         ax2=ax1.twiny()
         ax2.plot(np.mean(z,axis=1)+beta*y,np.linspace(0, Ly, num=ny),'g')
